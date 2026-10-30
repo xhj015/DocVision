@@ -1,0 +1,14 @@
+# DocVision 环境依赖
+# 说明：本项目复用 PaddleOCR 的既有环境（D:\projects\PaddleOCR\venv）。
+# 以下为关键依赖的最低版本要求，供全新环境复现参考。
+
+# OCR 核心
+paddlepaddle>=3.2.0          # 深度学习框架（CPU 版即可）
+paddleocr>=3.0.0             # OCR 推理（本项目使用本地源码开发版）
+paddlex>=3.7.0,<3.8.0        # PaddleOCR 3.x 的底层依赖
+
+# 图片处理
+opencv-python>=4.10.0        # 检测框可视化、图片读写
+
+# Web 界面
+gradio>=4.0.0                # 网页交互界面

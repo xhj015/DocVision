@@ -1,0 +1,30 @@
+# Python 缓存
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+
+# 虚拟环境
+venv/
+.venv/
+env/
+
+# 模型权重与缓存（体积巨大，不提交）
+*.pdmodel
+*.pdiparams
+*.pdopt
+.paddlex/
+output/
+
+# IDE 与编辑器
+.vscode/
+.idea/
+*.swp
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 运行产生的临时结果（识别结果可选择性保留，但默认不提交）
+*_result.txt
+*_boxes.png
