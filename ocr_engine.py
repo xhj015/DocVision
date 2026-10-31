@@ -62,11 +62,13 @@ class OCREngine:
             use_textline_orientation=False,
         )
 
-    def recognize(self, image_path: str) -> List[Dict]:
+    def recognize(self, image_path: str, score_thresh: Optional[float] = None) -> List[Dict]:
         """识别一张图片，返回整理后的文字块列表。
 
         Args:
             image_path: 图片文件路径。
+            score_thresh: 置信度阈值，覆盖构造时的默认值；
+                          传 None 则使用 self.score_thresh。
 
         Returns:
             list[dict]，每个元素结构：
@@ -77,6 +79,8 @@ class OCREngine:
             }
         """
         self._load_model()
+
+        thresh = self.score_thresh if score_thresh is None else score_thresh
 
         result = self._ocr.predict(image_path)
 
@@ -96,7 +100,7 @@ class OCREngine:
 
                 score = float(rec_scores[i]) if i < len(rec_scores) else 0.0
                 # 过滤低于阈值的低置信度结果
-                if score < self.score_thresh:
+                if score < thresh:
                     continue
 
                 box = self._box_to_xyxy(rec_boxes, i)
