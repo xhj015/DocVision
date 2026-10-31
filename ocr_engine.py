@@ -10,6 +10,7 @@
    包含：文本、置信度、检测框坐标（左上/右下）。
 """
 
+import threading
 from typing import List, Dict, Optional
 
 
@@ -40,6 +41,9 @@ class OCREngine:
         self._ocr = None
         self._det_model_name = det_model_name
         self._rec_model_name = rec_model_name
+        # Paddle 的预测器不是线程安全的：多个请求并发调用会触发段错误
+        # （在 Web 服务里表现为整个进程崩溃）。用互斥锁把推理串行化。
+        self._lock = threading.Lock()
 
     def _load_model(self):
         """加载 PaddleOCR 模型（仅第一次调用时执行）。"""
@@ -78,11 +82,13 @@ class OCREngine:
                 "box":    [x1, y1, x2, y2], 左上/右下角像素坐标,
             }
         """
-        self._load_model()
-
         thresh = self.score_thresh if score_thresh is None else score_thresh
 
-        result = self._ocr.predict(image_path)
+        # 加锁覆盖「模型加载 + 推理」两步：
+        # 既避免并发首次加载重复初始化，也避免并发推理导致段错误。
+        with self._lock:
+            self._load_model()
+            result = self._ocr.predict(image_path)
 
         items: List[Dict] = []
         # predict() 返回一个 list，每个元素对应一页/一张图。

@@ -3,6 +3,11 @@
 功能：浏览器里上传图片 → 调用 PaddleOCR 识别 → 展示标注图、
 结果表格、统计摘要，并支持导出 TXT。
 
+交互设计：
+    点「开始识别」执行一次模型推理，把**全量结果**（阈值 0）缓存到 State；
+    之后拖动置信度滑块只是在缓存结果上做过滤与重画，不会重复推理。
+    这样调阈值是实时的，也避免了重复调用模型。
+
 启动：
     python app.py
 然后浏览器打开终端提示的地址（默认 http://127.0.0.1:7860）。
@@ -21,55 +26,70 @@ from image_utils import draw_boxes
 # 首次点击「开始识别」时才加载（懒加载），之后一直复用。
 ENGINE = OCREngine()
 
+DEFAULT_THRESH = 0.5
+
 # 供界面展示的示例图片
 EXAMPLES = ["examples/sample.png"] if os.path.exists("examples/sample.png") else None
 
 
-def run_ocr(image_path: str, score_thresh: float):
-    """处理一次识别请求，返回四样结果给界面。"""
-    if not image_path:
-        return None, [], "请先上传一张图片。", None
-
-    # ① 识别
-    items = ENGINE.recognize(image_path, score_thresh=score_thresh)
-    if not items:
+def _render(image_path: str, items, thresh: float):
+    """按阈值过滤缓存结果，重新生成图 / 表 / 摘要 / TXT（不调用模型）。"""
+    kept = [it for it in items if it["score"] >= thresh]
+    if not kept:
         return (
             None,
             [],
-            "没有识别到文字。可以换一张图，或把置信度阈值调低再试。",
+            f"当前阈值 **{thresh:.2f}** 下没有结果，试试把阈值调低。",
             None,
         )
 
-    # ② 检测框可视化
-    # 输出到系统临时目录并随机命名：Gradio 的上传临时目录可能被回收，
-    # 且原文件名可能含中文，统一放到可控路径更稳。
+    # 检测框可视化（输出路径放系统临时目录，避免中文路径与回收问题）
     boxed_path = draw_boxes(
         image_path,
-        items,
+        kept,
         output_path=os.path.join(
             tempfile.gettempdir(), f"docvision_boxes_{uuid.uuid4().hex[:8]}.png"
         ),
     )
 
-    # ③ 整理成表格数据
     rows = [
         [i, it["text"], round(it["score"], 4), str(it["box"])]
-        for i, it in enumerate(items, start=1)
+        for i, it in enumerate(kept, start=1)
     ]
 
-    # ④ 导出 TXT（文字 + 置信度，制表符分隔）
     txt_path = tempfile.mktemp(suffix="_docvision.txt")
     with open(txt_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(f"{it['text']}\t{it['score']:.4f}" for it in items))
+        f.write("\n".join(f"{it['text']}\t{it['score']:.4f}" for it in kept))
 
-    avg_score = sum(it["score"] for it in items) / len(items)
+    avg_score = sum(it["score"] for it in kept) / len(kept)
     summary = (
-        f"**共识别 {len(items)} 个文字块**　|　"
+        f"**共识别 {len(kept)} 个文字块**（全量 {len(items)} 个）　|　"
         f"平均置信度 {avg_score:.4f}　|　"
-        f"最高 {max(it['score'] for it in items):.4f}"
+        f"最高 {max(it['score'] for it in kept):.4f}"
     )
 
     return boxed_path, rows, summary, txt_path
+
+
+def do_recognize(image_path: str):
+    """点击「开始识别」：跑一次模型推理，缓存全量结果并渲染。"""
+    if not image_path:
+        return [], None, [], "请先上传一张图片。", None
+
+    # 阈值传 0，拿到全部结果，后续由滑块过滤
+    items = ENGINE.recognize(image_path, score_thresh=0.0)
+    if not items:
+        return [], None, [], "没有识别到文字，可以换一张图片试试。", None
+
+    img, rows, summary, txt = _render(image_path, items, DEFAULT_THRESH)
+    return items, img, rows, summary, txt
+
+
+def on_thresh_change(items, image_path: str, thresh: float):
+    """拖动滑块：只过滤缓存结果，不重新推理。"""
+    if not items or not image_path:
+        return None, [], "请先上传图片并点击「开始识别」。", None
+    return _render(image_path, items, thresh)
 
 
 def build_ui() -> gr.Blocks:
@@ -80,9 +100,12 @@ def build_ui() -> gr.Blocks:
             # DocVision
             基于百度飞桨 **PaddleOCR** 的图片文字识别工具
 
-            上传图片 → 自动检测并识别文字 → 查看检测框与置信度 → 导出 TXT
+            上传图片 → 点击「开始识别」→ 拖动阈值实时筛选 → 导出 TXT
             """
         )
+
+        # 缓存本次识别的全量结果，供滑块过滤复用
+        state = gr.State([])
 
         with gr.Row():
             # 左栏：输入
@@ -91,9 +114,10 @@ def build_ui() -> gr.Blocks:
                 thresh = gr.Slider(
                     minimum=0.0,
                     maximum=1.0,
-                    value=0.5,
+                    value=DEFAULT_THRESH,
                     step=0.05,
-                    label="置信度阈值（越低保留越多，但可能有噪声）",
+                    label="置信度阈值（识别后拖动可实时筛选）",
+                    info="低于该值的结果会被隐藏；调整无需重新识别",
                 )
                 btn = gr.Button("开始识别", variant="primary", size="lg")
 
@@ -109,8 +133,16 @@ def build_ui() -> gr.Blocks:
                 file_out = gr.File(label="下载识别结果 TXT")
 
         btn.click(
-            fn=run_ocr,
-            inputs=[img_in, thresh],
+            fn=do_recognize,
+            inputs=[img_in],
+            outputs=[state, img_out, table, summary, file_out],
+            concurrency_limit=1,
+        )
+
+        # 松开滑块即触发过滤（不重新推理）
+        thresh.release(
+            fn=on_thresh_change,
+            inputs=[state, img_in, thresh],
             outputs=[img_out, table, summary, file_out],
         )
 
