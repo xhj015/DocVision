@@ -4,11 +4,48 @@
 文字块的检测框，并标注置信度，方便直观查看识别效果。
 
 依赖 OpenCV（已在项目环境中安装）。
+
+注意：cv2.imread / cv2.imwrite 在 Windows 上无法处理含中文的路径，
+因此本模块统一使用 np.fromfile + cv2.imdecode / cv2.imencode + tofile
+的读写方式，兼容中文文件路径。
 """
 
+import os
 from typing import List, Dict, Optional
 
 import cv2
+import numpy as np
+
+
+def imread_unicode(path: str) -> Optional[np.ndarray]:
+    """读取图片，兼容中文路径。
+
+    cv2.imread 在 Windows 下遇到非 ASCII 路径会返回 None，
+    这里先用 np.fromfile 读成字节流，再交给 cv2.imdecode 解码。
+    """
+    try:
+        data = np.fromfile(path, dtype=np.uint8)
+        if data.size == 0:
+            return None
+        return cv2.imdecode(data, cv2.IMREAD_COLOR)
+    except (OSError, ValueError):
+        return None
+
+
+def imwrite_unicode(path: str, image: np.ndarray) -> bool:
+    """保存图片，兼容中文路径。
+
+    cv2.imwrite 同样不支持中文路径，改为先编码成字节流再写文件。
+    """
+    try:
+        ext = os.path.splitext(path)[1] or ".png"
+        ok, buf = cv2.imencode(ext, image)
+        if not ok:
+            return False
+        buf.tofile(path)
+        return True
+    except (OSError, ValueError, cv2.error):
+        return False
 
 
 def draw_boxes(
@@ -22,12 +59,12 @@ def draw_boxes(
         image_path: 原始图片路径。
         items: OCREngine.recognize() 返回的文字块列表，
                每个元素含 "box"（[x1,y1,x2,y2]）和 "score"。
-        output_path: 标注图保存路径；不传则自动生成。
+        output_path: 标注图保存路径；不传则在原图同目录生成 *_boxes.*。
 
     Returns:
         标注图的实际保存路径。
     """
-    img = cv2.imread(image_path)
+    img = imread_unicode(image_path)
     if img is None:
         raise FileNotFoundError(f"无法读取图片：{image_path}")
 
@@ -56,10 +93,11 @@ def draw_boxes(
         )
 
     if output_path is None:
-        base, ext = image_path.rsplit(".", 1)
-        output_path = f"{base}_boxes.{ext}"
+        base, ext = os.path.splitext(image_path)
+        output_path = f"{base}_boxes{ext or '.png'}"
 
-    cv2.imwrite(output_path, img)
+    if not imwrite_unicode(output_path, img):
+        raise OSError(f"无法保存标注图：{output_path}")
     return output_path
 
 

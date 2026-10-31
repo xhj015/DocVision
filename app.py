@@ -10,6 +10,7 @@
 
 import os
 import tempfile
+import uuid
 
 import gradio as gr
 
@@ -40,7 +41,15 @@ def run_ocr(image_path: str, score_thresh: float):
         )
 
     # ② 检测框可视化
-    boxed_path = draw_boxes(image_path, items)
+    # 输出到系统临时目录并随机命名：Gradio 的上传临时目录可能被回收，
+    # 且原文件名可能含中文，统一放到可控路径更稳。
+    boxed_path = draw_boxes(
+        image_path,
+        items,
+        output_path=os.path.join(
+            tempfile.gettempdir(), f"docvision_boxes_{uuid.uuid4().hex[:8]}.png"
+        ),
+    )
 
     # ③ 整理成表格数据
     rows = [
