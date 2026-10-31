@@ -69,8 +69,7 @@ DocVision/
 ├── test_ocr.py         # 命令行入口
 ├── requirements.txt    # 依赖清单
 ├── examples/           # 示例图片
-├── assets/             # 演示截图
-└── 项目讲解稿.md        # 项目设计说明与问答整理
+└── assets/             # 演示截图
 ```
 
 ## 实现说明
