@@ -25,7 +25,7 @@
 ### 2. 安装
 
 ```bash
-git clone https://github.com/<你的用户名>/DocVision.git
+git clone https://github.com/xhj015/DocVision.git
 cd DocVision
 
 python -m venv venv
